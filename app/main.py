@@ -1,9 +1,11 @@
 from flask import Flask, jsonify, request
 import sqlite3
+from urllib.parse import parse_qs
 
 app = Flask(__name__)
 
-classiffieds_ads = []
+default_order_by = 'ad_id'
+default_order = 'asc'
 
 
 def initiate_db():
@@ -31,17 +33,34 @@ def dict_factory(cursor, row):
         d[col[0]] = row[idx]
     return d
 
-# A route to return all of the available entries in our catalog.
 @app.route('/api/v1/classiffieds_ads', methods=['GET'])
 def list_classifieds():
     conn = sqlite3.connect('classiffieds.db')
     conn.row_factory = dict_factory
     cur = conn.cursor()
-    cur.execute('SELECT * FROM classiffieds_ads;')
+
+    query = gen_query(request.query_string.decode())
+    print(query)
+    cur.execute(query)
     return jsonify(cur.fetchall())
 
 
-# A route to return all of the available entries in our catalog.
+def gen_query(query_str):
+    parsed_str = parse_qs(query_str, encoding='utf-8')
+    print(parsed_str)
+
+    order_by = parsed_str.get('sortby', [default_order_by])[0]
+
+    if order_by not in ['ad_id', 'price', 'created_at']:
+        order_by = default_order_by
+
+    order = parsed_str.get('sort', [default_order])[0]
+    if order not in ['asc', 'desc']:
+        order = default_order
+
+    return f'SELECT * FROM classiffieds_ads ORDER BY {order_by} {order};'
+
+
 @app.route('/api/v1/classiffieds_ads/<int:ad_id>', methods=['GET'])
 def get_ad(ad_id):
     conn = sqlite3.connect('classiffieds.db')
@@ -51,7 +70,6 @@ def get_ad(ad_id):
     return jsonify(cur.fetchone())
 
 
-# A route to return all of the available entries in our catalog.
 @app.route('/api/v1/classiffieds_ads/<int:ad_id>', methods=['DELETE'])
 def delete_ad(ad_id):
     conn = sqlite3.connect('classiffieds.db')
@@ -61,7 +79,6 @@ def delete_ad(ad_id):
     return 'OK'
 
 
-# A route to return all of the available entries in our catalog.
 @app.route('/api/v1/classiffieds_ads', methods=['POST'])
 def add_classified():
     conn = sqlite3.connect('classiffieds.db')
