@@ -1,19 +1,23 @@
 from flask import Flask, jsonify, request
 import sqlite3
 from urllib.parse import parse_qs
+from datetime import datetime
 
 app = Flask(__name__)
 
-default_order_by = 'ad_id'
-default_order = 'asc'
+DEFAULT_ORDER_BY = 'ad_id'
+DEFAULT_ORDER = 'asc'
+ALLOWED_ORDER_BY = ['ad_id', 'price', 'created_at']
+ALLOWED_ORDER = ['asc', 'desc']
+DB = 'classifieds.db'
 
 
 def initiate_db():
-    conn = sqlite3.connect('classiffieds.db')
+    conn = sqlite3.connect(DB)
     c = conn.cursor()
     c.execute(
         """
-            CREATE TABLE IF NOT EXISTS classiffieds_ads(
+            CREATE TABLE IF NOT EXISTS classifieds_ads(
             ad_id INTEGER PRIMARY KEY AUTOINCREMENT, 
             subject TEXT NOT NULL, 
             body TEXT NOT NULL, 
@@ -33,62 +37,68 @@ def dict_factory(cursor, row):
         d[col[0]] = row[idx]
     return d
 
-@app.route('/api/v1/classiffieds_ads', methods=['GET'])
-def list_classifieds():
-    conn = sqlite3.connect('classiffieds.db')
-    conn.row_factory = dict_factory
-    cur = conn.cursor()
-
-    query = gen_query(request.query_string.decode())
-    print(query)
-    cur.execute(query)
-    return jsonify(cur.fetchall())
-
 
 def gen_query(query_str):
     parsed_str = parse_qs(query_str, encoding='utf-8')
-    print(parsed_str)
 
-    order_by = parsed_str.get('sortby', [default_order_by])[0]
+    order_by = parsed_str.get('sortby', [DEFAULT_ORDER_BY])[0]
+    if order_by not in ALLOWED_ORDER_BY:
+        order_by = DEFAULT_ORDER_BY
 
-    if order_by not in ['ad_id', 'price', 'created_at']:
-        order_by = default_order_by
+    order = parsed_str.get('sort', [DEFAULT_ORDER])[0]
+    if order not in ALLOWED_ORDER:
+        order = DEFAULT_ORDER
 
-    order = parsed_str.get('sort', [default_order])[0]
-    if order not in ['asc', 'desc']:
-        order = default_order
-
-    return f'SELECT * FROM classiffieds_ads ORDER BY {order_by} {order};'
+    return f'SELECT * FROM classifieds_ads ORDER BY {order_by} {order};'
 
 
-@app.route('/api/v1/classiffieds_ads/<int:ad_id>', methods=['GET'])
-def get_ad(ad_id):
-    conn = sqlite3.connect('classiffieds.db')
+@app.route('/api/v1/classifieds_ads', methods=['GET'])
+def list_classifieds():
+    conn = sqlite3.connect(DB)
     conn.row_factory = dict_factory
-    cur = conn.cursor()
-    cur.execute('SELECT * FROM classiffieds_ads WHERE ad_id == ?;', (ad_id,))
-    return jsonify(cur.fetchone())
+    c = conn.cursor()
+
+    query = gen_query(request.query_string.decode())
+    c.execute(query)
+    return jsonify(c.fetchall())
 
 
-@app.route('/api/v1/classiffieds_ads/<int:ad_id>', methods=['DELETE'])
+@app.route('/api/v1/classifieds_ads/<int:ad_id>', methods=['GET'])
+def get_ad(ad_id):
+    conn = sqlite3.connect(DB)
+    conn.row_factory = dict_factory
+    c = conn.cursor()
+    c.execute('SELECT * FROM classifieds_ads WHERE ad_id == ?;', (ad_id,))
+
+    result = c.fetchone()
+    if result:
+        return jsonify(result)
+    else:
+        return '', 404
+
+
+@app.route('/api/v1/classifieds_ads/<int:ad_id>', methods=['DELETE'])
 def delete_ad(ad_id):
-    conn = sqlite3.connect('classiffieds.db')
+    conn = sqlite3.connect(DB)
     c = conn.cursor()
-    c.execute('DELETE FROM classiffieds_ads WHERE ad_id == ?;', (ad_id,))
+    c.execute('DELETE FROM classifieds_ads WHERE ad_id == ?;', (ad_id,))
     conn.commit()
-    return 'OK'
+    return ''
 
 
-@app.route('/api/v1/classiffieds_ads', methods=['POST'])
-def add_classified():
-    conn = sqlite3.connect('classiffieds.db')
+@app.route('/api/v1/classifieds_ads', methods=['POST'])
+def add_ad():
+    ad = request.json
+    ad['created_at'] = datetime.now()
+    conn = sqlite3.connect(DB)
     c = conn.cursor()
-    c.execute("""INSERT INTO classiffieds_ads(subject, body, price, email, created_at) 
-            VALUES (?, ?, ?, ?, datetime('now'))""",
-                        (request.json['subject'], request.json['body'], request.json['price'], request.json['email']))
+    c.execute("""INSERT INTO classifieds_ads(subject, body, price, email, created_at) 
+            VALUES (?, ?, ?, ?, ?)""",
+                        (ad['subject'], ad['body'], ad['price'], ad['email'], ad['created_at']))
     conn.commit()
 
-    return str(c.lastrowid)
+    ad['ad_id'] = c.lastrowid
+    return jsonify(ad), 201
 
 
 if __name__ == '__main__':
